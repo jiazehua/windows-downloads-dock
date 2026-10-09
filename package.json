@@ -1,0 +1,60 @@
+{
+  "name": "downloadsdock",
+  "version": "1.0.1",
+  "description": "仿 macOS Dock 下载 stack 的 Windows 任务栏工具：任务栏图标 + Win+W 呼出优雅浮层，可拖拽文件",
+  "main": "main.js",
+  "author": "穿山贾",
+  "license": "MIT",
+  "scripts": {
+    "start": "node run.js",
+    "dist": "electron-builder --win",
+    "pack": "electron-builder --dir",
+    "icon": "node gen-icon.js"
+  },
+  "build": {
+    "appId": "com.chuanshanjia.downloadsdock",
+    "productName": "DownloadsDock",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "下载浮窗"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**",
+      "hook.ps1",
+      "drag-helper.ps1",
+      "copy-helper.ps1",
+      "paste-helper.ps1",
+      "assets/icon.png"
+    ],
+    "asarUnpack": [
+      "hook.ps1",
+      "drag-helper.ps1",
+      "copy-helper.ps1",
+      "paste-helper.ps1"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.3"
+  }
+}

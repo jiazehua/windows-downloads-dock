@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'" />
+  <link rel="stylesheet" href="style.css" />
+  <title>&#8203;</title>
+</head>
+<body>
+  <div id="popup" class="popup">
+    <div class="arrow"></div>
+
+    <header class="topbar">
+      <button class="tbtn" id="btnBack" title="返回上级">←</button>
+      <div class="path" id="path" title=""></div>
+      <div class="spacer"></div>
+      <button class="tbtn" id="btnView" title="切换视图">网格</button>
+      <button class="tbtn" id="btnRefresh" title="刷新">⟳</button>
+      <button class="tbtn" id="btnMenu" title="设置">⋯</button>
+      <button class="tbtn close" id="btnClose" title="收起">✕</button>
+    </header>
+
+    <div class="searchbar">
+      <input id="search" type="text" placeholder="搜索文件名…" spellcheck="false" />
+    </div>
+
+    <div id="list" class="list view-list"></div>
+
+    <footer class="status" id="status"></footer>
+    <div id="resizeHandle" class="resize-handle" title="拖拽调整宽度"></div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+_probe/
+*.log
+debug.log
+*.bak
+*.bak-*
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
