@@ -28,7 +28,10 @@ let currentDir = ''
 let allFiles = []
 let selectedPaths = new Set()
 let view = localStorage.getItem('dock-view') || 'list'
-let iconSize = parseInt(localStorage.getItem('dock-icon-size'), 10) || 56
+// ⚠️ 键名带 -2 是故意的：老键 dock-icon-size 里存着旧默认值 56，
+//    直接改默认值会被 localStorage 里的 56 盖掉，用户根本看不到变化。
+//    换键名 = 让新默认值 44 真正生效一次；用户之后 Ctrl+滚轮调过的值照常记住。
+let iconSize = parseInt(localStorage.getItem('dock-icon-size-2'), 10) || 44
 let loadSequence = 0
 let thumbObserver = null
 const thumbnailCache = new Map()
@@ -281,7 +284,7 @@ document.addEventListener('mouseup', () => {
 // ---------- Ctrl+滚轮 放大/缩小图标 ----------
 function applyIconSize() {
   document.documentElement.style.setProperty('--icon-size', iconSize + 'px')
-  localStorage.setItem('dock-icon-size', iconSize)
+  localStorage.setItem('dock-icon-size-2', iconSize)
 }
 applyIconSize()
 

@@ -67,21 +67,24 @@ button { outline-offset: 2px; }
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 3px 13px 13px;
+  padding: 3px 11px 11px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-rows: 118px;
-  gap: 9px;
+  /* 一排 3 个：右栏里已经有悬停预览，缩略图不需要大，密一点更好扫 */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 88px;
+  gap: 7px;
   align-content: start;
   overscroll-behavior: contain;
+  /* 拖拽重排时别把手势变成文本选择 */
+  user-select: none;
 }
 .grid::-webkit-scrollbar { width: 7px; }
 .grid::-webkit-scrollbar-track { background: transparent; }
 .grid::-webkit-scrollbar-thumb { background: #d6e1ed; border-radius: 9px; border: 2px solid transparent; background-clip: content-box; }
 .card {
   position: relative; min-width: 0; overflow: hidden;
-  padding: 6px;
-  border: 1px solid #e6edf5; border-radius: 12px;
+  padding: 5px;
+  border: 1px solid #e6edf5; border-radius: 10px;
   background: rgba(255,255,255,.94);
   box-shadow: 0 1px 4px rgba(24,46,72,.035);
   cursor: grab;
@@ -94,16 +97,28 @@ button { outline-offset: 2px; }
   box-shadow: 0 8px 18px rgba(37,102,162,.13);
 }
 .card:active { cursor: grabbing; transform: translateY(0) scale(.985); }
-.card-preview { width: 100%; height: 78px; object-fit: contain; display: block; border-radius: 7px; background: #edf2f7; pointer-events: none; }
-.card-footer { height: 25px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 2px 0 3px; gap: 4px; }
-.card-time { color: #5e7088; font-size: 10.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* 拖拽重排：源卡片留个虚位提示，其余卡片停止 hover 位移，免得整片跟着抖 */
+.grid.reordering .card:hover { transform: none; }
+.grid.reordering .card { cursor: grabbing; }
+.card.dragging {
+  opacity: .42;
+  border-style: dashed;
+  border-color: var(--clip-accent);
+  background: #f4faff;
+  box-shadow: none;
+  cursor: grabbing;
+}
+.card.dragging:hover { transform: none; border-color: var(--clip-accent); }
+.card-preview { width: 100%; height: 55px; object-fit: contain; display: block; border-radius: 6px; background: #edf2f7; pointer-events: none; }
+.card-footer { height: 22px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 1px 0 2px; gap: 3px; }
+.card-time { color: #5e7088; font-size: 9.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .reveal {
-  width: 23px; height: 23px; border: 0; border-radius: 6px;
+  width: 20px; height: 20px; border: 0; border-radius: 5px;
   color: #7992ad; background: transparent; cursor: pointer;
   display: grid; place-items: center; margin-bottom: -2px;
 }
 .reveal:hover { color: #267fbe; background: #e8f3fc; }
-.reveal svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+.reveal svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
 .clip-empty { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; text-align: center; padding: 18px 45px 33px; }
 .clip-empty-graphic { width: 62px; height: 62px; border-radius: 20px; background: linear-gradient(145deg,#eaf6fa,#e7edfc); position: relative; color:#448ab2; margin-bottom: 17px; }
 .clip-empty-graphic span:first-child { position:absolute; left:15px; top:13px; font-size:29px; font-weight:600; }

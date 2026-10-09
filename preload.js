@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('shelf', {
   //    两者混用会导致拖拽截图时把「一个字符串」当路径数组处理。
   startDrag: file => ipcRenderer.send('shot-drag', file),
   dragEnded: () => ipcRenderer.send('drag-ended'),
+  reorder: files => ipcRenderer.invoke('shelf-reorder', files),
   chooseFolder: () => ipcRenderer.invoke('choose-folder'),
   saveRetention: days => ipcRenderer.invoke('save-retention', days),
   setShelfOpen: open => ipcRenderer.invoke('set-shelf-open', open),

@@ -99,6 +99,9 @@ let shelfWidth = Math.max(SHELF_MIN, Math.min(SHELF_MAX, Number(config.shelfWidt
 const defaultShotFolder = () => path.join(app.getPath('pictures'), 'ClipShelf')
 let retentionDays = Number.isInteger(config.retentionDays) ? Math.min(3650, Math.max(0, config.retentionDays)) : 30
 let shotFolder = (typeof config.clipFolder === 'string' && config.clipFolder.trim()) ? config.clipFolder : defaultShotFolder()
+// 用户手动拖拽排出来的图片顺序（绝对路径数组，按显示顺序）。
+// 只在用户真的拖过一次之后才非空——空数组时完全走原来的「按时间倒序」。
+let clipOrder = Array.isArray(config.clipOrder) ? config.clipOrder.filter(p => typeof p === 'string') : []
 
 function defaultDownload() {
   const h = app.getPath('downloads')
@@ -181,6 +184,15 @@ function cleanOldFiles() {
       } catch (e) { logError('cleanOldFiles unlink: ' + e.message) }
     }
   } catch (e) { logError('cleanOldFiles scan: ' + e.message) }
+  // 手动顺序里已经被清掉的文件要一起摘掉，否则 config.json 会无限变长
+  if (clipOrder.length) {
+    const kept = clipOrder.filter(file => { try { return fs.existsSync(file) } catch (e) { return false } })
+    if (kept.length !== clipOrder.length) {
+      clipOrder = kept
+      config.clipOrder = kept
+      saveConfig()
+    }
+  }
 }
 
 function thumbnail(file, width) {
@@ -208,6 +220,22 @@ function shots() {
     } catch (e) { /* 正在被清理，跳过 */ }
   }
   entries.sort((a, b) => b.date - a.date)
+  // 手动排序优先：进了 clipOrder 的按用户拖出来的次序；没进的（刚截的新图）
+  // 一律排到它们前面，且内部仍按时间倒序 —— 这样新截图永远出现在最前，
+  // 不会因为「用户排过序」就被挤到 60 张可见范围之外。
+  // （Array#sort 在 V8 里是稳定的，所以相等分支会保序。）
+  if (clipOrder.length) {
+    const rank = new Map()
+    clipOrder.forEach((file, index) => rank.set(file, index))
+    entries.sort((a, b) => {
+      const ra = rank.has(a.file) ? rank.get(a.file) : -1
+      const rb = rank.has(b.file) ? rank.get(b.file) : -1
+      if (ra >= 0 && rb >= 0) return ra - rb
+      if (ra >= 0) return 1
+      if (rb >= 0) return -1
+      return b.date - a.date
+    })
+  }
   const out = []
   for (const entry of entries.slice(0, 60)) {
     const cached = shotThumbCache.get(entry.file)
@@ -1103,20 +1131,71 @@ ipcMain.on('reveal-file', (_event, file) => { if (trustedShot(file)) shell.showI
 ipcMain.on('preview-show', (_event, file) => showPreview(file))
 ipcMain.on('preview-hide', () => hidePreview())
 
+// 右栏图片卡片拖拽重排序：手势完全在渲染层做（纯 DOM insertBefore），
+// 主进程只负责把最终顺序落盘 + 回推 state。
+ipcMain.handle('shelf-reorder', (_event, order) => {
+  if (!Array.isArray(order)) return clipSettings()
+  // ⚠️ 必须白名单过滤：入参是渲染层从 DOM 的 dataset 里读回来再传过来的，
+  //    不校验就会把任意路径写进 config.json 并长期生效。
+  const known = []
+  try {
+    for (const name of fs.readdirSync(shotFolder)) {
+      if (!SHOT_NAME.test(name)) continue
+      const file = path.join(shotFolder, name)
+      let date = 0
+      try { date = fs.statSync(file).birthtimeMs } catch (e) { continue }
+      known.push({ file, date })
+    }
+  } catch (e) { return clipSettings() }
+  const allowed = new Set(known.map(k => k.file))
+
+  const seen = new Set()
+  const clean = []
+  for (const file of order) {
+    if (typeof file !== 'string' || !allowed.has(file) || seen.has(file)) continue
+    seen.add(file)
+    clean.push(file)
+  }
+  // 渲染层只认得当前渲染出来的那 60 张，所以要把它没见过的（更老的）文件补在后面。
+  // 不补的话它们会因为「不在 clipOrder 里」而被规则当成新文件排到最前，
+  // 把用户刚排好的顺序整个挤出 60 张可见范围。
+  known.sort((a, b) => b.date - a.date)
+  for (const item of known) if (!seen.has(item.file)) clean.push(item.file)
+
+  clipOrder = clean
+  config.clipOrder = clean
+  saveConfig()
+  logError(`shelf reorder: 本次可见 ${seen.size} 项，落盘 ${clean.length} 项`)
+  sendState()
+  return clipSettings()
+})
+
 // 拖动最近图片卡片到其他应用（注意：不是 dock 的 start-drag）
 ipcMain.on('shot-drag', (event, file) => {
   if (!trustedShot(file)) return
   dragging = true
   hidePreview()
+  const started = Date.now()
+  logError('shot drag start: ' + path.basename(file))
   try {
     const icon = nativeImage.createFromPath(file).resize({ width: 96, height: 72, quality: 'good' })
+    // ⚠️ startDrag 跑的是一个**模态的** OS 拖拽循环：这一行返回时拖拽就已经结束了，
+    //    所以复位 dragging / 按需收起都写在返回之后。
+    //    千万别指望渲染层的 dragend —— dragstart 里 preventDefault 之后浏览器就不再派发它，
+    //    合并前挂的那条 drag-ended 通道其实从没触发过（error.log 里 0 次），
+    //    结果是 dragging 一旦置位永不复位，表现出来就是「拖过一次卡片之后浮窗再也不自动收起」。
     event.sender.startDrag({ file, icon })
+    logError(`shot drag end (${Date.now() - started}ms)`)
   } catch (error) {
-    dragging = false
     logError('shot drag failed: ' + error.message)
   }
+  dragging = false
+  if (!pinned && popupState === 'visible') hidePopup('shot-drag-complete')
 })
 ipcMain.on('drag-ended', () => {
+  // 渲染层手势的兜底（pointerup / pointercancel / 窗口失焦）。
+  // startDrag 是模态的话这里早就复位了，属空操作，不会重复收起。
+  if (!dragging) return
   dragging = false
   if (!pinned) hidePopup('drag-ended')
 })
