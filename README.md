@@ -112,11 +112,30 @@ node _probe/gesture.js 1200 1000 1150
 node _probe/e2e.js
 ```
 
+表达式太长、引号太多时，写进文件用 `CDP_FILE` 传（省掉 shell 转义地狱）：
+
+```powershell
+$env:CDP_FILE = "$PWD\_probe\installed-check.expr.js"; node _probe/cdp-eval.js
+```
+
+`_probe/installed-check.expr.js`（两栏矩形 / 间隙 / 手柄 / 列表与卡片数 / 暂存架可见性）
+和 `_probe/installed-shelf.expr.js`（暂存架开合 → 窗口宽度联动）是给**装好的 release 版**
+用的冒烟表达式——打包后最容易丢的就是 asar 里的 `clip-app.js` / `clip.css` / `file-shelf.js`，
+这两条跑通基本就说明资源齐了。
+
 结果与崩溃信息都会写进 `%APPDATA%\downloadsdock\error.log`。
 
-> 沙箱/CI 里有两个坑：① 不能用 `&` 在后台起应用再断言 —— 工具调用一结束后台子进程就被回收，
+> 沙箱/CI 里有三个坑：
+> ① **必须加 `--no-sandbox`**。在受限令牌（restricted token / job object）下运行时，
+> Chromium 自己的渲染进程沙箱起不来，日志里会是
+> `render-process-gone {"reason":"crashed","exitCode":-2147483645}`（`0x80000003` 断点）
+> 外加 `child-process-gone {"type":"GPU","exitCode":-1073741819}`（`0xC0000005` 访问冲突），
+> 一串刷完进程就没了。**这不是应用缺陷**——同一份二进制加 `--no-sandbox` 稳定常驻，
+> 而且只加 `--disable-gpu` 照样崩（说明跟显卡驱动无关，是沙箱层）；
+> 用户在自己桌面上双击快捷方式（无参数）不会遇到，因为那里的进程令牌是正常的。
+> ② 不能用 `&` 在后台起应用再断言 —— 工具调用一结束后台子进程就被回收，
 > 应用会在断言跑到一半时消失，所以 `e2e.js` 自己 `spawn` 应用并全程掌控生命周期；
-> ② 脚本里不要 `spawn powershell.exe`（会被拦），触发热键改用「**双实例**」：
+> ③ 脚本里不要 `spawn powershell.exe`（会被拦），触发热键改用「**双实例**」：
 > 再起一个同 `--user-data-dir` 的 Electron，它拿不到单例锁会直接退出，
 > 而已在运行的实例会收到 `second-instance` → `togglePopup()`，与真热键走同一条逻辑。
 
