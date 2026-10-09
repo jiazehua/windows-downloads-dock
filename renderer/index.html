@@ -4,31 +4,118 @@
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="clip.css" />
   <title>&#8203;</title>
 </head>
 <body>
-  <div id="popup" class="popup">
-    <div class="arrow"></div>
+  <div id="app">
 
-    <header class="topbar">
-      <button class="tbtn" id="btnBack" title="返回上级">←</button>
-      <div class="path" id="path" title=""></div>
-      <div class="spacer"></div>
-      <button class="tbtn" id="btnView" title="切换视图">网格</button>
-      <button class="tbtn" id="btnRefresh" title="刷新">⟳</button>
-      <button class="tbtn" id="btnMenu" title="设置">⋯</button>
-      <button class="tbtn close" id="btnClose" title="收起">✕</button>
-    </header>
+    <!-- ================= 左栏：下载浮层 ================= -->
+    <div id="popup" class="popup">
+      <div class="arrow"></div>
 
-    <div class="searchbar">
-      <input id="search" type="text" placeholder="搜索文件名…" spellcheck="false" />
+      <header class="topbar">
+        <button class="tbtn" id="btnBack" title="返回上级">←</button>
+        <div class="path" id="path" title=""></div>
+        <div class="spacer"></div>
+        <button class="tbtn" id="btnView" title="切换视图">网格</button>
+        <button class="tbtn" id="btnRefresh" title="刷新">⟳</button>
+        <button class="tbtn" id="btnMenu" title="设置">⋯</button>
+        <button class="tbtn close" id="btnClose" title="收起">✕</button>
+      </header>
+
+      <div class="searchbar">
+        <input id="search" type="text" placeholder="搜索文件名…" spellcheck="false" />
+      </div>
+
+      <div id="list" class="list view-list"></div>
+
+      <footer class="status" id="status"></footer>
+      <div id="resizeHandle" class="resize-handle" title="拖拽调整下载栏宽度"></div>
     </div>
 
-    <div id="list" class="list view-list"></div>
+    <!-- ================= 右栏：ClipShelf（最近图片 + 暂存架） ================= -->
+    <div id="clipPane" class="window">
+      <div class="screenshot-pane">
+        <header class="header">
+          <div class="brand">
+            <img src="assets/app.png" alt="" class="brand-icon">
+            <div>
+              <div class="title-line"><span>最近图片</span><span id="count" class="count">0</span></div>
+              <div class="subtitle">随手截，随处用</div>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="shelf-toggle" class="icon-button" title="展开暂存架" aria-label="展开暂存架" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16M15 8h3m-3 4h3m-3 4h3"/></svg>
+            </button>
+            <button id="pin" class="icon-button" title="固定窗口" aria-label="固定窗口">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l-1.1 5 2.7 2.6v2H6.4v-2L9.1 8 8 3Zm4 10v8"/></svg>
+            </button>
+            <button id="folder" class="icon-button" title="打开保存文件夹" aria-label="打开保存文件夹">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6.5Z"/></svg>
+            </button>
+            <button id="settings" class="icon-button" title="设置" aria-label="设置">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4m10.6 10.6 1.4 1.4m0-13.4-1.4 1.4M6.7 17.3l-1.4 1.4"/></svg>
+            </button>
+            <button id="close" class="icon-button close" title="隐藏" aria-label="隐藏">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19"/></svg>
+            </button>
+          </div>
+        </header>
+        <div class="toolbar"><span class="eyebrow">YOUR CAPTURES</span><span class="toolbar-hint">拖动卡片到其他应用</span></div>
+        <section id="grid" class="grid" aria-label="最近截图"></section>
+        <div id="empty" class="clip-empty hidden">
+          <div class="clip-empty-graphic"><span>Ctrl</span><span>✦</span></div>
+          <strong>还没有截图</strong>
+          <p>把图片复制到剪贴板后，它会自动出现在这里。</p>
+        </div>
+        <div id="settings-pane" class="settings-pane hidden">
+          <div class="settings-header">
+            <strong>偏好设置</strong>
+            <button id="back" class="text-button">完成</button>
+          </div>
+          <label>保存位置</label>
+          <button id="choose-folder" class="folder-choice"><span id="folder-path"></span><span>更改…</span></button>
+          <label for="retention">自动清理</label>
+          <div class="retention-row">
+            <input id="retention" type="number" min="0" max="3650" step="1">
+            <span>天后删除</span>
+          </div>
+          <p class="settings-note">设为 0 表示永久保留。只清理自动保存的截图。</p>
+          <button id="save" class="primary-button">保存设置</button>
+        </div>
+      </div>
 
-    <footer class="status" id="status"></footer>
-    <div id="resizeHandle" class="resize-handle" title="拖拽调整宽度"></div>
+      <section id="file-shelf" class="file-shelf hidden" aria-label="暂存架">
+        <header class="shelf-header">
+          <div class="shelf-heading"><span class="shelf-symbol">▦</span><strong>暂存架</strong><span id="file-count" class="count">0</span></div>
+          <div class="actions">
+            <button id="shelf-folder" class="icon-button" title="在资源管理器中打开" aria-label="在资源管理器中打开"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h6l2 2h10v12H3Z"/></svg></button>
+            <button id="shelf-more" class="icon-button" title="更多操作" aria-label="更多操作"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+          </div>
+        </header>
+        <nav class="shelf-navigation" aria-label="文件夹导航">
+          <button id="shelf-up" class="icon-button" title="返回上一级" aria-label="返回上一级"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"/></svg></button>
+          <button id="shelf-root" class="crumb-root">暂存架</button><span id="shelf-location" class="crumb-location"></span>
+        </nav>
+        <div id="shelf-drop-zone" class="shelf-drop-zone">
+          <div id="file-grid" class="file-grid" role="listbox" aria-label="暂存文件" aria-multiselectable="true" tabindex="0"></div>
+          <div id="shelf-empty" class="shelf-empty"><div class="drop-symbol"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M5 25v8h30v-8M20 6v20m-7-7 7 7 7-7"/></svg></div><strong>拖入文件或文件夹</strong><p>临时放这里，随时拖出去</p></div>
+          <div id="selection-box" class="selection-box hidden"></div>
+          <div class="drop-overlay">松开即可加入暂存架</div>
+        </div>
+        <footer class="shelf-footer"><span id="shelf-status">文件会保留，直到你手动清理</span><button id="cancel-copy" class="text-button hidden">取消复制</button></footer>
+        <div id="name-dialog" class="name-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="name-title">
+          <form id="name-form" class="name-form"><strong id="name-title">重命名</strong><input id="entry-name" autocomplete="off" spellcheck="false" aria-label="文件名称"><p id="name-error" class="name-error"></p><div class="name-actions"><button id="name-cancel" type="button" class="secondary-button">取消</button><button type="submit" class="primary-button">完成</button></div></form>
+        </div>
+      </section>
+      <div id="shelf-resize" class="shelf-resize hidden" role="separator" aria-label="调整暂存架宽度" tabindex="0"></div>
+    </div>
+
   </div>
   <script src="renderer.js"></script>
+  <script src="clip-app.js"></script>
+  <script src="shelf-app.js"></script>
 </body>
 </html>

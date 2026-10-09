@@ -27,10 +27,32 @@ html, body {
 
 body { padding: 12px; }
 
-/* ---------- 浮层容器 ---------- */
+/* ============================================================
+   双栏容器：左 = 下载浮层（.popup），右 = ClipShelf 面板（#clipPane）
+   整个窗口跟随鼠标出现，入场动画统一挂在 #app 上，
+   这样左右两栏会一起淡入，而不是只有左边动、右边硬闪。
+   ============================================================ */
+#app {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;              /* 两栏之间的间隙，正好让 .resize-handle 落脚 */
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transform: translateY(12px) scale(0.985);
+  transition: opacity 0.2s cubic-bezier(0.2, 0.8, 0.25, 1),
+              transform 0.2s cubic-bezier(0.2, 0.8, 0.25, 1);
+  transform-origin: bottom center;
+}
+#app.visible { opacity: 1; transform: translateY(0) scale(1); }
+/* 拖拽调整宽度时关掉过渡，否则拖起来会有橡皮筋感 */
+#app.resizing { transition: none; }
+
+/* ---------- 左栏：下载浮层 ---------- */
 .popup {
   position: relative;
-  width: 100%;
+  flex: 1 1 auto;        /* 吃掉「窗口总宽 - 右栏」的剩余宽度 */
+  min-width: 0;
   height: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -38,31 +60,18 @@ body { padding: 12px; }
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.4);
   display: flex;
   flex-direction: column;
-  opacity: 0;
-  transform: translateY(16px) scale(0.97);
-  transition: opacity 0.22s cubic-bezier(0.2, 0.8, 0.25, 1),
-              transform 0.22s cubic-bezier(0.2, 0.8, 0.25, 1);
-  transform-origin: bottom center;
-}
-.popup.visible {
-  opacity: 1;
-  transform: translateY(0) scale(1);
 }
 
-/* 底部箭头（指向任务栏） */
-.arrow {
-  position: absolute;
-  left: 50%;
-  bottom: -9px;
-  width: 22px;
-  height: 11px;
-  margin-left: -11px;
-  background: var(--bg);
-  border-left: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  transform: rotate(45deg);
-  z-index: 0;
+/* 右栏：ClipShelf 面板。宽度由内容撑开（截图栏 388 + 暂存架宽度），
+   clip.css 里的 .window 规则负责浅色外观。 */
+#clipPane {
+  flex: 0 0 auto;
+  min-height: 0;
+  height: 100%;
 }
+
+/* 底部箭头原本指向任务栏；改成跟随鼠标出现后已无意义 */
+.arrow { display: none; }
 
 /* 重命名输入框 */
 .rename-input {
@@ -255,16 +264,18 @@ body { padding: 12px; }
   z-index: 1;
 }
 
-/* ---------- 右侧拖拽调整宽度手柄 ---------- */
+/* ---------- 拖拽调整宽度手柄 ----------
+   合并后它不再贴着窗口右缘，而是正好落在 #app 的 8px 间隙里，
+   负责调整左栏（下载浮层）的宽度；右栏的暂存架宽度由 #shelf-resize 负责。 */
 .resize-handle {
   position: absolute;
   top: 10px;
-  right: 0;
+  right: -8px;
   bottom: 10px;
-  width: 10px;
+  width: 8px;
   cursor: ew-resize;
   z-index: 20;
-  border-radius: 0 6px 6px 0;
+  border-radius: 4px;
   transition: background 0.12s;
 }
 .resize-handle:hover,

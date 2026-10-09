@@ -1,7 +1,7 @@
 {
   "name": "downloadsdock",
-  "version": "1.0.1",
-  "description": "仿 macOS Dock 下载 stack 的 Windows 任务栏工具：任务栏图标 + Win+W 呼出优雅浮层，可拖拽文件",
+  "version": "2.0.0",
+  "description": "Windows 下载浮窗 + 最近图片：Ctrl+Shift+V 在鼠标位置弹出双栏浮层，左栏管下载文件夹，右栏自动收集剪贴板图片并支持临时暂存架",
   "main": "main.js",
   "author": "穿山贾",
   "license": "MIT",
@@ -38,6 +38,7 @@
       "main.js",
       "preload.js",
       "renderer/**",
+      "clipshelf/**",
       "hook.ps1",
       "drag-helper.ps1",
       "copy-helper.ps1",

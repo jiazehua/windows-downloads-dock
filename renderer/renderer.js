@@ -1,9 +1,17 @@
 // ============================================================
-//  DownloadsDock — 浮层渲染进程
+//  DownloadsDock — 浮层渲染进程（左栏）
 // ============================================================
 // `dock` is exposed as a non-configurable global by contextBridge.  Declaring
 // `const dock` again throws in recent Electron versions and stops this entire
 // script before any buttons or file loading handlers are registered.
+//
+// ⚠️ 整个文件包在 IIFE 里：本文件和 clip-app.js / shelf-app.js 跑在同一个
+//    document 里，classic script 的顶层 function 会挂到 window 上互相覆盖。
+//    最初 renderer.js 和 clip-app.js 都定义了顶层 function render()，
+//    后加载的 clip-app 把下载栏的 render 顶掉，导致下载栏每次刷新都在调用
+//    clip 的 render(undefined)（日志表现为「Cannot read properties of
+//    undefined (reading 'shots')」）。收进 IIFE 后两边彻底隔离。
+(function () {
 
 const popupEl = document.getElementById('popup')
 const listEl = document.getElementById('list')
@@ -158,8 +166,8 @@ function toggleSelect(p) {
 // ---------- 事件委托 ----------
 let lastSelEndTime = 0
 
-// 绑定到 document：点文件=选中，点浮层任意空白=取消所有选中
-document.addEventListener('click', (e) => {
+// 绑定到左栏（不再绑 document）：右栏 ClipShelf 的点击不应该清掉下载区的选中
+popupEl.addEventListener('click', (e) => {
   const item = e.target.closest('.item')
   if (item) {
     const p = decodeURIComponent(item.dataset.path)
@@ -333,7 +341,11 @@ function applyView() {
 // ---------- 搜索 ----------
 searchEl.addEventListener('input', () => render())
 document.addEventListener('keydown', (e) => {
+  // 右栏 ClipShelf 在捕获阶段已经 preventDefault 的按键，不再重复处理
+  if (e.defaultPrevented) return
   if (e.key === 'Escape') {
+    // 右栏有模态（偏好设置 / 重命名对话框）打开时，交给它自己先关
+    if (window.__clipModalOpen) return
     e.preventDefault()
     playOut()
     return
@@ -341,6 +353,9 @@ document.addEventListener('keydown', (e) => {
   // 输入框内（如重命名/搜索）不拦截，走默认文本复制粘贴
   const tag = e.target && e.target.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA') return
+  // 焦点在右栏（ClipShelf / 暂存架）时不抢 Ctrl+C / Ctrl+V
+  const clipPaneEl = document.getElementById('clipPane')
+  if (clipPaneEl && clipPaneEl.contains(document.activeElement)) return
   if (!(e.ctrlKey || e.metaKey)) return
   const k = e.key.toLowerCase()
   if (k === 'c' && selectedPaths.size) {
@@ -353,16 +368,21 @@ document.addEventListener('keydown', (e) => {
 })
 
 // ---------- 动画 ----------
+// 合并成双栏窗口后，入场动画挂在 #app 上，左右两栏一起淡入；
+// #popup 上的 .visible 保留为状态标记（主进程会读取它判断浮层是否已显示）。
+const appEl = document.getElementById('app')
 function playIn() {
-  popupEl.classList.remove('visible')
-  void popupEl.offsetWidth
+  appEl.classList.remove('visible')
+  void appEl.offsetWidth
+  appEl.classList.add('visible')
   popupEl.classList.add('visible')
 }
 function playOut() {
+  appEl.classList.remove('visible')
   popupEl.classList.remove('visible')
 }
-popupEl.addEventListener('transitionend', (e) => {
-  if (e.propertyName === 'opacity' && !popupEl.classList.contains('visible')) {
+appEl.addEventListener('transitionend', (e) => {
+  if (e.propertyName === 'opacity' && !appEl.classList.contains('visible')) {
     dock.hideDone()
   }
 })
@@ -411,3 +431,5 @@ document.addEventListener('visibilitychange', () => {
 // ---------- 初始化 ----------
 applyView()
 dock.getCurrentDir().then(d => { currentDir = d; loadFiles() })
+
+})()
