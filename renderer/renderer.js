@@ -27,6 +27,10 @@ const btnClose = document.getElementById('btnClose')
 let currentDir = ''
 let allFiles = []
 let selectedPaths = new Set()
+// 已按 Ctrl+X 剪切、正挂在系统剪贴板上的路径集合。
+// 声明放在这里而不是按键处理旁边：updateSel() 每次渲染都会读它，
+// 用 let 声明在函数之后会出现 TDZ（初始化前调用就报错）。
+let cutPaths = new Set()
 let view = localStorage.getItem('dock-view') || 'list'
 // ⚠️ 键名带 -2 是故意的：老键 dock-icon-size 里存着旧默认值 56，
 //    直接改默认值会被 localStorage 里的 56 盖掉，用户根本看不到变化。
@@ -121,6 +125,8 @@ function updateSel() {
   listEl.querySelectorAll('.item').forEach(el => {
     const p = decodeURIComponent(el.dataset.path)
     el.classList.toggle('selected', selectedPaths.has(p))
+    // 重建 DOM 后 .cut 会丢，这里一起补上（cutPaths 是跨渲染保留的）
+    el.classList.toggle('cut', cutPaths.has(p))
   })
 }
 
@@ -184,7 +190,17 @@ popupEl.addEventListener('click', (e) => {
 
 listEl.addEventListener('dblclick', (e) => {
   const item = e.target.closest('.item')
-  if (!item) return
+  if (!item) {
+    // 双击空白处 → 返回上一级。
+    // 触发条件是「空白」：不是文件项、不是「空文件夹」提示，也不是刚框选完。
+    // 框选（拖拽选择）松手后也会落在空白处，若不排除，用户每框选一次就被踢出目录，
+    // 所以沿用单击空白那套 150ms 时间窗（见 mousedown 里的 lastSelEndTime）。
+    if (e.target.closest('.empty')) return
+    if (Date.now() - lastSelEndTime <= 150) return
+    dock.navigateUp()
+    loadFiles()
+    return
+  }
   const p = decodeURIComponent(item.dataset.path)
   if (item.dataset.dir === '1') {
     dock.enterDir(p)
@@ -364,11 +380,36 @@ document.addEventListener('keydown', (e) => {
   if (k === 'c' && selectedPaths.size) {
     e.preventDefault()
     dock.copyFiles([...selectedPaths])
+    clearCut()   // 改成复制了，之前的剪切标记要撤掉
+  } else if (k === 'x' && selectedPaths.size) {
+    // 剪切：写进系统剪贴板（带 MOVE 标记），粘到哪都是「移动」。
+    // 剪完立刻把图标变半透明，让用户看得出「这些已经被剪走了」——
+    // 资源管理器也是这个反馈，没有的话用户会怀疑到底按没按上。
+    e.preventDefault()
+    dock.cutFiles([...selectedPaths])
+    markCut([...selectedPaths])
   } else if (k === 'v') {
     e.preventDefault()
     dock.pasteFiles()
   }
 })
+
+// 被剪切的路径：给对应图标打 .cut 类（半透明），粘贴或重新复制后清除。
+function markCut (paths) {
+  cutPaths = new Set(paths)
+  updateCutVisual()
+}
+function clearCut () {
+  if (!cutPaths.size) return
+  cutPaths = new Set()
+  updateCutVisual()
+}
+function updateCutVisual () {
+  for (const el of listEl.querySelectorAll('.item')) {
+    const p = decodeURIComponent(el.dataset.path)
+    el.classList.toggle('cut', cutPaths.has(p))
+  }
+}
 
 // ---------- 动画 ----------
 // 合并成双栏窗口后，入场动画挂在 #app 上，左右两栏一起淡入；
@@ -421,7 +462,9 @@ dock.onDoRename((p) => {
 // ---------- IPC 事件 ----------
 dock.onShow(() => { playIn(); loadFiles() })
 dock.onHide(() => playOut())
-dock.onDirChanged(() => loadFiles())
+dock.onDirChanged(() => { clearCut(); loadFiles() })
+// 右键菜单里的「粘贴到当前文件夹」——和 Ctrl+V 同一条路径
+if (dock.onDoPaste) dock.onDoPaste(() => dock.pasteFiles())
 
 // 兜底：窗口从隐藏变可见（主进程 show 但 IPC 可能早于监听注册而丢失）时补动画+刷新
 document.addEventListener('visibilitychange', () => {

@@ -3,3 +3,10 @@
 *.ico binary
 *.zip binary
 *.exe binary
+
+# PowerShell 脚本必须保持仓库里的原始字节，且必须是 UTF-8 带 BOM。
+# git 的自动换行转换（text=auto + core.autocrlf）会重写整个文件，
+# 一旦把 BOM 弄丢或行尾改掉，PS 5.1 在中文系统下就按 GBK 解码中文注释，
+# 表现是随机语法错误 + 行号完全指不到真实位置（详见 README 实现要点 2）。
+# 所以这些文件按二进制处理，git 一个字都不许改。
+*.ps1 binary

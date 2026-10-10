@@ -226,6 +226,12 @@ body { padding: 12px; }
 }
 .view-grid .item:hover { background: var(--bg-hover); }
 .view-grid .item.selected { background: var(--accent-soft); }
+
+/* 已剪切（Ctrl+X）的项：半透明，和资源管理器的观感一致。
+   它必须能被一眼看出「这个已经挂在剪贴板上了」，否则用户按完 Ctrl+X 没有反馈，
+   会以为没生效而反复按。放在 .selected 之后，保证选中态的底色与半透明同时生效。 */
+.view-list .item.cut, .view-grid .item.cut { opacity: 0.42; }
+.view-list .item.cut .nm, .view-grid .item.cut .nm { font-style: italic; }
 .view-grid .item .ic { width: calc(var(--icon-size, 44px) * 1.28); height: var(--icon-size, 44px); }
 .view-grid .item .ic.preview { background-size: cover; }
 .view-grid .item .ic.file-icon,

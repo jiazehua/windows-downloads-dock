@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 #  DownloadsDock — copy-helper (one-shot, STA)
 #  Reads file/dir paths from stdin (one per line) and copies them
 #  to the clipboard as CF_HDROP so the user can paste elsewhere.

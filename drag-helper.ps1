@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 #  DownloadsDock — drag-helper (one-shot, STA)
 #  Performs a native OLE file drag-out via WinForms DoDragDrop
 #  (used for folder / mixed drags, which webContents.startDrag

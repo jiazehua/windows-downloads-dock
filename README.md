@@ -18,7 +18,13 @@
 - 钉住 `%USERPROFILE%\Downloads`（可在 `⋯` 菜单改），自动监视刷新
 - **列表 / 图标网格**两种视图；网格下 `Ctrl+滚轮` 缩放图标（20~96px，记忆尺寸，默认 44px）
 - **多选（Ctrl/Shift 点击）+ 圈选（空白处拖出选框）**，选中后整体拖到微信 / 浏览器 / 资源管理器
-- 双击打开文件 / 进入文件夹、搜索过滤、右键菜单（打开 / 在资源管理器中显示 / 复制路径 / 重命名 / 删除到回收站 / 刷新）
+- 双击打开文件 / 进入文件夹；**双击空白处返回上一级**
+- **Ctrl+C / Ctrl+X / Ctrl+V**：复制、剪切、粘贴文件与文件夹（走系统剪贴板 `CF_HDROP`，
+  可以直接粘到资源管理器；剪切带 `Preferred DropEffect=MOVE` 标记，粘贴方执行的是「移动」）。
+  剪切后图标变半透明，和资源管理器的观感一致
+- **解压压缩包**：右键 `.zip` → 「解压到当前文件夹」，解到同名文件夹；重名时自动加序号
+  （`.7z` / `.rar` 等走系统 7-Zip，没装会明确提示）
+- 搜索过滤、右键菜单（打开 / 在资源管理器中显示 / 解压 / 剪切 / 复制 / 粘贴 / 复制路径 / 重命名 / 删除到回收站 / 刷新）
 - 图片 / 视频 / PDF 走系统缩略图，其余按扩展名缓存系统关联图标
 - 拖拽调整左栏宽度（320~900px，记忆）
 
@@ -38,9 +44,9 @@
 - **默认不置顶**（不选中「固定窗口」）：点别处就自动收回
 - 右栏「固定窗口」= 置顶，固定后失焦不收，快捷键只负责叫回来
 - 进出场有淡入淡出 + 位移缩放动画；两栏一起动
-- **任务栏上只有一个图标**（锚点窗口）。浮层和预览小窗都不进任务栏 —— 只有浮层弹出来时
-  不会另外多一个按钮，收起后任务栏就只剩那一个常驻图标 + 托盘图标
-- 右键任务栏图标 → 关闭窗口：只收起浮层，不退出应用（要退出走托盘菜单的「退出」）
+- **平时任务栏上什么都没有**（只有托盘图标）。按 `Ctrl+Shift+V` 浮层出现时，任务栏才出现它自己的
+  按钮；收起后按钮立刻消失，任务栏回到空
+- 右键任务栏按钮 → 关闭窗口：只收起浮层，不退出应用（要退出走托盘菜单的「退出」）
 
 ## 快捷键与托盘
 
@@ -50,6 +56,11 @@
 | 托盘图标左键 | 呼出 / 收起 |
 | 托盘右键 | 启用(Ctrl+Shift+V) / 打开收起 / 固定窗口 / 打开下载·截图·暂存文件夹 / 退出 |
 | `Esc` | 收起（右栏有设置或重命名弹窗时先关弹窗） |
+| `Ctrl+C` | 复制选中的文件 / 文件夹（可粘到资源管理器等任何程序） |
+| `Ctrl+X` | 剪切选中的文件 / 文件夹（图标变半透明；粘贴方执行移动） |
+| `Ctrl+V` | 粘贴到当前文件夹（剪贴板是「剪切」则移动，是「复制」则复制；重名自动加「 - 副本N」） |
+| 双击文件夹 | 进入该文件夹 |
+| 双击空白处 | 返回上一级 |
 | 右栏 `✕` | 收起浮层（不退出程序） |
 
 > ⚠️ **`Ctrl+Shift+V` 是被低级键盘钩子全局吞掉的**（连 keyup 一起吞，否则目标程序仍会收到）。
@@ -88,7 +99,9 @@ DownloadsDock-electron/
 ├── hook.ps1               Ctrl+Shift+V 低级键盘钩子（内嵌 C#，**必须纯 ASCII + UTF-8 BOM**）
 ├── drag-helper.ps1        目录 / 多文件拖出（WinForms DoDragDrop）
 ├── copy-helper.ps1        复制到剪贴板（CF_HDROP）
-├── paste-helper.ps1       从剪贴板粘贴
+├── cut-helper.ps1         剪切到剪贴板（CF_HDROP + Preferred DropEffect=MOVE）
+├── paste-helper.ps1       读剪贴板路径 + 判别复制/剪切，输出 JSON 给主进程
+├── extract-helper.ps1     zip 解压（.NET ZipFile + UTF-8→GBK 回退）
 ├── run.js                 开发态启动 wrapper（清掉 ELECTRON_RUN_AS_NODE）
 ├── gen-icon.js            图标生成
 ├── assets/icon.png        512×512 图标
@@ -97,6 +110,8 @@ DownloadsDock-electron/
     ├── cdp-shot.js        连 CDP 截图（不含系统边框）
     ├── gesture.js         紧凑「移动鼠标 + 采样窗口尺寸」拖拽回归
     ├── e2e.js             端到端回归（自己 spawn 应用，见下）
+    ├── _launch-cdp.js     启动开发版并开 9222 调试端口（做 CDP 实测用）
+    ├── _verify-ops.js     CDP 实测左栏文件操作：解压 / 双击空白返回上级 / Ctrl+X / 双击进目录
     └── ps-input.ps1       合成输入：hotkey / move X Y / pos
 ```
 
@@ -169,17 +184,29 @@ $env:MODE = 'out'; node _probe/reorder-probe.js
 修法：两个文件整体包进 IIFE（`(function(){...})()` / `(() => {...})()`），不再往 `window` 上挂东西。
 **加新文件时同样要包 IIFE。**
 
-### 2. `hook.ps1` 的编码陷阱（会报「应输入 }」这种莫名其妙的行号）
+### 2. 所有 `.ps1` 必须存成「UTF-8 带 BOM」（会报「应输入 }」这种莫名其妙的行号）
 
-`hook.ps1` 里用 here-string 内嵌 C#，再 `Add-Type -TypeDefinition` 编译。两个必须同时满足：
+**这条适用于全部 ps1，不只是 `hook.ps1`。** Windows PowerShell 5.1 在中文系统（ANSI 936）下
+按 GBK 解码**无 BOM 的 UTF-8 文件**，中文注释变乱码。多数时候只是注释难看，
+但**注释字节被错解后有可能吃掉换行或语句结构，导致随机语法错误、且行号完全指不到真实位置**。
 
-- **脚本文件本身要存成 UTF-8 *带 BOM***。否则 Windows PowerShell 5.1 在中文系统（ANSI 936）
-  下按 GBK 解码无 BOM 的 UTF-8 文件，中文注释直接变乱码；
+`hook.ps1` 的情况更严重，因为里面还用 here-string 内嵌 C# 再 `Add-Type -TypeDefinition` 编译：
+
+- **脚本文件本身要存成 UTF-8 *带 BOM***；
 - **C# here-string 块内必须全英文注释（纯 ASCII）**。因为 `Add-Type -TypeDefinition` 是把源码
   按 `Encoding.Default` 落盘成临时 .cs 再编译的，中文注释在那一步同样会被写坏，
   编译器报错、而且**行号错位**，完全指不到真实位置。
 
 两个都踩过：表现为 `hook exited code=1` 无限重启 + `Add-Type : ...(76) : 应输入 }`。
+
+v2.1.2 又栽了一次：新写的 `cut-helper.ps1` 是无 BOM 的 UTF-8，运行时报
+`不能对 Null 值表达式调用方法` —— 指向 `$data.SetFileDropList($sc)`，但 `$data` 明明是刚
+`::new()` 出来的。真实原因是文件里的中文注释（含 `⚠️`）被 GBK 错解，把上下文解析坏了。
+补上 BOM 后立刻正常。**顺手排查发现 `drag-helper.ps1` / `copy-helper.ps1` / `paste-helper.ps1`
+/ `extract-helper.ps1` 也都是无 BOM，已全部统一补上。**
+
+> 检查：`python -c "print(open('x.ps1','rb').read()[:3] == b'\xef\xbb\xbf')"`
+> 补 BOM：`python -c "p='x.ps1';r=open(p,'rb').read();open(p,'wb').write(b'\xef\xbb\xbf'+r)"`
 
 `_probe/ps-srcprobe.ps1` 就是当时定位这个的探针（复刻落盘 + 单独编译 + 数 0x5C 字节）。
 
@@ -285,13 +312,83 @@ hideFallbackTimer = setTimeout(finish, 260)  // 渲染层若卡住/加载中，�
   补在手动顺序之后，否则它们会因为「不在 `clipOrder` 里」而被当成新文件排到最前，
   把用户刚排好的顺序整个挤出 60 张可见范围。
 
+### 12. 剪贴板的「剪切」不是属性，是一个隐藏格式（`Preferred DropEffect`）
+
+Windows 剪贴板**没有**「这是剪切」这样的布尔属性。复制和剪切在剪贴板上都是 `CF_HDROP`
+（一串文件路径），区别只在于有没有附带 **`Preferred DropEffect`** 这个自定义格式：
+
+| 值 | 含义 |
+| --- | --- |
+| `DROPEFFECT_COPY` = `1` | 复制 |
+| `DROPEFFECT_MOVE` = `2` | 剪切（粘贴方执行移动） |
+
+写入时**必须用 `DataObject` 一次性提交两种格式**：
+
+```powershell
+$data = [System.Windows.Forms.DataObject]::new()
+$data.SetFileDropList($sc)
+$data.SetData('Preferred DropEffect', [byte[]](2, 0, 0, 0))
+[System.Windows.Forms.Clipboard]::SetDataObject($data, $true)   # true = 退出后仍保留
+```
+
+先 `SetFileDropList` 再单独补 `SetData` 会把前一步整个冲掉（剪贴板是整体替换语义）。
+读取端同理：`GetDataPresent('Preferred DropEffect')` → `ToInt32($eff, 0) -band 2`。
+
+还有个坑：`New-Object System.Windows.Forms.DataObject` 在本项目的无交互会话里**可能建出
+`$null`**，随后就报「不能对 Null 值表达式调用方法」。改用 `[System.Windows.Forms.DataObject]::new()`
+显式构造就稳了（但先确认文件有 BOM，见第 2 条 —— 两者症状完全相同，别诊断错方向）。
+
+### 13. 任务栏按钮可以「按需出现」：`setSkipTaskbar()` 运行时切换是有效的
+
+用户要的语义是：**平时任务栏空无一人**（只有托盘），按 `Ctrl+Shift+V` 浮层出现时任务栏才有按钮，
+收起后按钮消失。早先的判断是「`skipTaskbar` 是创建时标志，运行时切换无效，所以必须搞一个常驻锚点窗口」——
+**这个判断是错的**，用对照实验证伪了。
+
+实验：同一次运行里开四个窗口，看谁在任务栏出现按钮。
+
+| 窗口 | 创建时 `skipTaskbar` | 是否 `transparent` | 事后调用 | 任务栏出现？ |
+| --- | --- | --- | --- | --- |
+| A | `false` | 否 | — | ✅ |
+| B | `true` | 否 | `setSkipTaskbar(false)` | ✅ |
+| C | `false` | 是 | — | ✅ |
+| D | `true` | 是 | `setSkipTaskbar(false)` | ✅ |
+
+**四个全都出现了按钮** → 运行时切换有效，透明与否也不影响。锚点窗口因此被整个移除
+（它和「平时任务栏要空」的诉求直接冲突）。
+
+正确顺序（`syncTaskbar()` 的实现）：
+
+- **显示**：`show()` **之后**再 `setSkipTaskbar(false)` —— 顺序反了会让 Windows 建不出按钮
+- **收起**：先 `minimize()` / `hide()`，**再** `setSkipTaskbar(true)` —— 先撤标志的话按钮会留着
+
+完整生命周期实测已验证：创建未显示（无按钮）→ 显示中（有按钮，高亮活动）→ 收起后（无按钮）。
+
+> 验证方法：`PIL.ImageGrab` 全屏截图，只裁底部 48px 任务栏带，用 `ImageChops.difference` 比对
+> 三个时间点的差异；**要把最右 240px（托盘区）排除**，否则时钟每跳一分钟就产生假差异。
+
 ## 版本
 
+- **v2.1.2（2026-10-10）**：**任务栏真正做到了「平时什么都没有」**。
+  v2.1.1 只把图标从两个减到一个（锚点还常驻），没满足「平时任务栏要空」。
+  这一版整个移除锚点窗口（`createAnchor()` / `anchorWin`），改为浮层窗口自己
+  `setSkipTaskbar()` 动态进出任务栏 —— 显示时进、收起时撤，并用对照实验证明运行时切换有效
+  （见实现要点 13）。顺带修掉一个潜伏很久的编码 bug：**全部 6 个 `.ps1` 统一补 UTF-8 BOM**
+  （新写的 `cut-helper.ps1` 正是栽在这上面，见实现要点 2）。
+
+  **左栏新增 4 个文件管理能力**：
+  - **解压**：右键 `.zip` → 「解压到当前文件夹」，解到同名文件夹，重名自动加序号
+    （`extract-helper.ps1`，走 .NET `ZipFile` 而非 `Expand-Archive` —— 后者没有 `-LiteralPath`，
+    含 `[ ]` 的路径会被当通配符；顺带做了 GBK 回退，老工具打的中文 zip 不乱码）
+  - **Ctrl+X 剪切**（剪贴板写 `Preferred DropEffect=MOVE`，图标变半透明）
+  - **Ctrl+V 粘贴**（读剪贴板标记决定移动还是复制；移动用 `renameSync`，跨盘 `EXDEV` 自动退回
+    「复制 + 删源」；源与目标同目录时跳过，不误删）
+  - **双击空白处返回上一级**（沿用单击空白那套 150ms 时间窗，避免框选松手被误判成双击空白）
+  - 右键菜单同步加了「剪切 / 复制 / 粘贴到当前文件夹 / 解压到当前文件夹」
 - **v2.1.1（2026-10-10）**：修复任务栏出现**两个**一模一样、而且关不掉的图标。
   根因是浮层窗口（`popupWin`）和任务栏锚点（`anchorWin`）**都**设了 `skipTaskbar: false`，
   于是各注册了一个任务栏按钮；而浮层的「关闭」被 `close` 事件拦下来只做收起，
-  右键「关闭窗口」同样被拦住，看起来就是「关不掉」。现在浮层改成 `skipTaskbar: true`，
-  **只有锚点进任务栏**（常驻那一个），浮层收起后任务栏不再多出任何按钮。
+  右键「关闭窗口」同样被拦住，看起来就是「关不掉」。这一版把浮层改成动态切换、
+  锚点保留 → **只解决了「两个」，没解决「平时要空」，v2.1.2 才彻底做完**。
 - **v2.1.0（2026-10-09）**：右栏缩略图改**一排 3 个**（更密，靠悬停预览看大图）；
   **卡片支持按住拖动重排序**（顺序落盘在 `config.json` 的 `clipOrder`，新截图仍排最前）；
   左栏图标缩小（网格默认 56→44px，列表 20→16px、行高 40→34px）；

@@ -47,7 +47,9 @@ function scriptPath(name) {
   return path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), name)
 }
 
-let anchorWin = null
+// 能被「解压缩」识别的后缀。zip 走系统自带 Expand-Archive，其余交给 7-Zip（若装了）。
+const ARCHIVE_EXTS = new Set(['.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz', '.tgz'])
+
 let popupWin = null
 let previewWin = null
 let tray = null
@@ -59,8 +61,6 @@ let currentPath = ''
 let iconCache = {}
 let watcher = null
 let watchTimer = null
-let anchorReady = false
-let anchorHandling = false
 const thumbnailCache = new Map()
 const PREVIEW_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.heic', '.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v', '.pdf'])
 let focusPollTimer = null
@@ -410,11 +410,8 @@ function createPopup() {
     transparent: true,
     resizable: false,
     show: false,
-    // ⚠️ 必须是 true：下面还有一个「锚点窗口」专门负责在任务栏留一个按钮。
-    // 两个窗口都不进任务栏 = 任务栏上什么都没有，用户就再也点不到它了。
-    // 以前这里是 false，于是浮层和锚点各注册一个任务栏按钮 → 任务栏上出现**两个**
-    // 一模一样的图标，而且关不掉（浮层的「关闭」被 close 事件拦下来只做收起，
-    // 右键「关闭窗口」同样被拦住）。锚点才是那个常驻的任务栏徽标。
+    // 任务栏按钮**动态**跟着浮层走（见 syncTaskbar）。这里给初始值 true = 平时不占。
+    // 之前锚点窗口常驻任务栏的那套已整个移除，原因见上面 createAnchor 位置的注释。
     skipTaskbar: true,
     alwaysOnTop: true,
     hasShadow: false,
@@ -476,43 +473,19 @@ function createPopup() {
   })
 }
 
-// ---------- 锚点窗口（任务栏按钮） ----------
-// 这是**唯一**进任务栏的窗口，也就是用户看到的那一个图标 / 徽标。
-// 按住它才能弹出浮层；浮层自己（popupWin）是 skipTaskbar 的，不再额外占一个按钮。
-function createAnchor() {
-  anchorWin = new BrowserWindow({
-    width: 1, height: 1,
-    x: 0, y: 0,
-    frame: false,
-    transparent: true,
-    skipTaskbar: false,
-    resizable: false,
-    show: false,
-    focusable: true,
-    hasShadow: false
-  })
-  try { anchorWin.setOpacity(0) } catch (e) { logError('anchor setOpacity: ' + e.message) }
-  // The anchor only exists so Windows exposes a taskbar button.  Its transparent
-  // 1x1 client area must never consume a click intended for another application.
-  try { anchorWin.setIgnoreMouseEvents(true, { forward: false }) } catch (e) { logError('anchor mouse passthrough: ' + e.message) }
-  const activateFromTaskbar = () => {
-    if (!appReady || !anchorReady || anchorHandling || !isEnabled) return
-    anchorHandling = true
-    // Keep the taskbar proxy minimized.  A taskbar click then reliably emits
-    // "restore" on Windows, even when the transparent proxy was focused before.
-    try { if (!anchorWin.isMinimized()) anchorWin.minimize() } catch (e) {}
-    setTimeout(() => togglePopup('taskbar'), 0)
-    setTimeout(() => { anchorHandling = false }, 500)
-  }
-  anchorWin.on('restore', activateFromTaskbar)
-  anchorWin.on('focus', activateFromTaskbar)
-  anchorWin.loadURL('about:blank').then(() => {
-    // showInactive avoids stealing focus from the popup during startup.
-    anchorWin.showInactive()
-    anchorWin.minimize()
-    anchorReady = true
-  }).catch(e => logError('anchor load: ' + e.message))
-}
+// 锚点窗口已移除（v2.1.2）。
+//
+// 它原本是一个 1x1 的透明窗口，唯一作用就是让 Windows 在任务栏上留一个按钮，
+// 用户点那个按钮能唤出浮层。但用户明确要求「平时任务栏不要有东西，只有按快捷键
+// 呼出浮层时任务栏才出现，收起后任务栏就没东西」—— 这与「常驻锚点」在语义上
+// 无法共存：常驻锚点必然在任务栏上留一个图标。
+//
+// 现在的分工：
+//   · 日常 → 任务栏**空**，只有托盘图标（托盘永远在，呼出能力不缺）
+//   · 浮层弹出 → 任务栏出现它自己的按钮（popupWin 的 skipTaskbar 动态切换）
+//   · 浮层收起 → 按钮消失，任务栏回到空
+//
+// ⚠️ 不要再把 anchorWin 加回来：它和用户要的「任务栏平时是空的」直接冲突。
 
 // ---------- 显示 / 隐藏 ----------
 
@@ -545,6 +518,22 @@ function positionPopup() {
   logError(`popup position: want=${x},${y} actual=${actual[0]},${actual[1]} size=${width}x${height} display=${display.id} cursor=${cursor.x},${cursor.y} scale=${display.scaleFactor}`)
 }
 
+// 任务栏按钮跟着浮层显隐走：显示 → 进任务栏；收起 → 从任务栏撤掉。
+// 这样「平时任务栏上什么都没有，按 Ctrl+Shift+V 才有」。
+//
+// ⚠️ 必须在窗口**显示之后**再设 false。Windows 不给「当前不可见」的窗口建任务栏按钮，
+//    在 show() 之前设 false 是白设（这就是之前不得不搞一个常驻锚点窗口的原因）。
+//    反过来收起时先把窗口隐藏、再设 true，按钮才会立刻消失。
+function syncTaskbar (onTaskbar) {
+  if (!popupWin || popupWin.isDestroyed()) return
+  try {
+    popupWin.setSkipTaskbar(!onTaskbar)
+    logError(`taskbar ${onTaskbar ? 'show' : 'hide'}`)
+  } catch (e) {
+    logError('setSkipTaskbar: ' + e.message)
+  }
+}
+
 function doShow() {
   if (!isEnabled || !popupWin || popupWin.isDestroyed() || popupState === 'visible') return
   clearTimeout(blurTimer)
@@ -555,6 +544,8 @@ function doShow() {
   popupState = 'showing'
   try { if (popupWin.isMinimized()) popupWin.restore() } catch (e) {}
   popupWin.show()
+  // show() 之后再让它进任务栏，否则 Windows 不会建按钮（见 syncTaskbar 注释）
+  syncTaskbar(true)
   popupWin.focus()
   // showTime 记在 focus() 之后：失焦保护窗口（250ms）要从「窗口真正拿到焦点」起算，
   // 否则中间一旦有耗时操作（比如生成缩略图），保护窗口会在 show() 那一刻就被消耗掉。
@@ -668,6 +659,9 @@ function hidePopup(reason = 'unknown') {
     settled = true
     pendingHide = null
     try { if (!popupWin.isMinimized()) popupWin.minimize() } catch (e) { popupWin.hide() }
+    // ⚠️ 顺序：先 minimize/hide 再撤任务栏按钮。反过来的话 Windows 会保留按钮
+    //    （它只在窗口隐藏时才回收按钮），表现就是「关掉了图标还在」。
+    syncTaskbar(false)
   }
   pendingHide = finish
   try { popupWin.webContents.send('popup-hide') } catch (e) { finish() }
@@ -684,6 +678,7 @@ function dismissPopup(reason = 'dismiss') {
   if (focusPollTimer) { clearInterval(focusPollTimer); focusPollTimer = null }
   hidePreview()
   popupWin.hide()
+  syncTaskbar(false)
   logError('popup dismissed: ' + reason)
 }
 
@@ -971,18 +966,84 @@ ipcMain.on('end-resize', () => {
   resizeState = null
 })
 
-// 复制文件/文件夹到剪贴板（CF_HDROP，之后可在资源管理器等 Ctrl+V 粘贴）
-ipcMain.on('copy-files', (e, paths) => {
+// 把路径写进系统剪贴板（CF_HDROP），cut=true 时带 MOVE 标记 → 粘贴方会执行「移动」。
+// 复制和剪切的差别只在 helper 脚本：copy-helper.ps1 只写文件列表，
+// cut-helper.ps1 额外写 Preferred DropEffect=2。
+function writeClipboard (paths, cut) {
   if (!paths || !paths.length) return
-  const script = scriptPath('copy-helper.ps1')
-  if (!fs.existsSync(script)) { logError('copy-helper.ps1 not found: ' + script); return }
+  const name = cut ? 'cut-helper.ps1' : 'copy-helper.ps1'
+  const script = scriptPath(name)
+  if (!fs.existsSync(script)) { logError(name + ' not found: ' + script); return }
   const p = spawn('powershell.exe', ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', script], { windowsHide: true })
   p.stdin.write(paths.join('\n'))
   p.stdin.end()
-  p.on('error', (err) => logError('copy helper spawn error: ' + err.message))
-})
+  p.on('error', (err) => logError((cut ? 'cut' : 'copy') + ' helper spawn error: ' + err.message))
+}
 
-// 从剪贴板粘贴文件到当前目录（复制，不剪切）
+// 复制文件/文件夹到剪贴板（CF_HDROP，之后可在资源管理器等 Ctrl+V 粘贴）
+ipcMain.on('copy-files', (e, paths) => { writeClipboard(paths, false) })
+
+// 剪切文件/文件夹到剪贴板（CF_HDROP + Preferred DropEffect=MOVE）
+// 和在资源管理器里按 Ctrl+X 等价，粘到别处是「移动」，粘回原目录则什么都不做。
+ipcMain.on('cut-files', (e, paths) => { writeClipboard(paths, true) })
+
+// 解压到当前目录下的同名文件夹（供右键菜单和 IPC 共用）
+async function extractArchiveTo (filePath) {
+  if (typeof filePath !== 'string' || !filePath) return { ok: false, error: '路径无效' }
+  try {
+    if (!fs.statSync(filePath).isFile()) return { ok: false, error: '不是文件' }
+  } catch (err) { return { ok: false, error: '文件不可用' } }
+
+  const ext = path.extname(filePath).toLowerCase()
+  if (!ARCHIVE_EXTS.has(ext)) return { ok: false, error: '不支持的压缩格式' }
+
+  const name = path.basename(filePath, ext)
+  let outDir = path.join(path.dirname(filePath), name)
+  // 目标文件夹已存在时不覆盖，加序号 —— 直接解到已有文件夹里会把人家内容搞乱
+  let i = 2
+  while (fs.existsSync(outDir)) { outDir = path.join(path.dirname(filePath), `${name} (${i})`); i++ }
+
+  if (ext === '.zip') {
+    return new Promise(resolve => {
+      const script = scriptPath('extract-helper.ps1')
+      if (!fs.existsSync(script)) { resolve({ ok: false, error: '缺少 extract-helper.ps1' }); return }
+      const p = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script], { windowsHide: true })
+      p.stdin.write(filePath + '\n' + outDir + '\n')
+      p.stdin.end()
+      let err = ''
+      p.stderr.setEncoding('utf8')
+      p.stderr.on('data', d => { err += d })
+      p.on('error', e2 => resolve({ ok: false, error: e2.message }))
+      p.on('exit', code => {
+        if (code === 0 && fs.existsSync(outDir)) {
+          logError('extract ok: ' + path.basename(filePath) + ' -> ' + outDir)
+          resolve({ ok: true, outDir })
+        } else {
+          logError('extract failed: code=' + code + ' ' + err.slice(0, 300))
+          resolve({ ok: false, error: (err || '解压失败').trim().slice(0, 200) })
+        }
+      })
+    })
+  }
+
+  const sevenZip = findSevenZip()
+  if (!sevenZip) return { ok: false, error: '解压 ' + ext + ' 需要装 7-Zip，本机没找到' }
+  return new Promise(resolve => {
+    const p = spawn(sevenZip, ['x', filePath, '-o' + outDir, '-y'], { windowsHide: true })
+    let err = ''
+    p.stderr.setEncoding('utf8')
+    p.stderr.on('data', d => { err += d })
+    p.on('error', e2 => resolve({ ok: false, error: e2.message }))
+    p.on('exit', code => {
+      if (code === 0) resolve({ ok: true, outDir })
+      else resolve({ ok: false, error: (err || '7-Zip 解压失败').slice(0, 200) })
+    })
+  })
+}
+
+// 从剪贴板粘贴文件到当前目录。
+// 剪贴板里的 Preferred DropEffect 决定语义：MOVE → 移动（剪切粘贴），否则复制。
+// paste-helper.ps1 输出一行 JSON：{"paths":[...],"cut":bool}
 ipcMain.on('paste-files', (e) => {
   const script = scriptPath('paste-helper.ps1')
   if (!fs.existsSync(script)) { logError('paste-helper.ps1 not found: ' + script); return }
@@ -994,35 +1055,102 @@ ipcMain.on('paste-files', (e) => {
   p.on('error', (err) => logError('paste helper spawn error: ' + err.message))
   p.on('exit', () => {
     try {
-      const list = JSON.parse(out.trim())
+      const raw = out.trim()
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      // 兼容两种输出：老格式是纯数组，新格式是 {paths, cut}
+      const list = Array.isArray(parsed) ? parsed : (parsed && parsed.paths)
+      const cut = !Array.isArray(parsed) && !!(parsed && parsed.cut)
       if (!Array.isArray(list) || !list.length) return
-      let copied = 0
+
+      let done = 0
       for (const src of list) {
         if (!fs.existsSync(src)) continue
         const name = path.basename(src)
         const ext = path.extname(name)
         const base = path.basename(name, ext)
         let dest = path.join(currentPath, name)
-        let i = 2
-        while (fs.existsSync(dest)) { dest = path.join(currentPath, `${base} - 副本${i}${ext}`); i++ }
-        try {
-          fs.cpSync(src, dest, { recursive: true })
-          copied++
-        } catch (err) { logError('paste copy failed: ' + src + ' -> ' + err.message) }
+        // 目标目录就是来源目录 → 什么都不做（剪贴板自己按 Ctrl+X 后再原处粘贴也是这个行为）
+        if (path.dirname(src) === currentPath) {
+          logError('paste 跳过（源与目标同目录）: ' + src)
+          continue
+        }
+        if (cut) {
+          // 移动：目标已存在时不覆盖，也不改名 —— 直接跳过并记日志，避免用户的文件被悄悄顶掉
+          if (fs.existsSync(dest)) {
+            logError('paste 移动跳过（目标已存在）: ' + dest)
+            continue
+          }
+          try {
+            fs.renameSync(src, dest)
+            done++
+          } catch (err) {
+            // 跨盘符 / 跨设备 rename 会抛 EXDEV，退回「复制 + 删源」
+            if (err.code === 'EXDEV') {
+              try {
+                fs.cpSync(src, dest, { recursive: true })
+                fs.rmSync(src, { recursive: true, force: true })
+                done++
+              } catch (err2) { logError('paste move(EXDEV) failed: ' + src + ' -> ' + err2.message) }
+            } else {
+              logError('paste move failed: ' + src + ' -> ' + err.message)
+            }
+          }
+        } else {
+          // 复制：同名自动加「 - 副本N」
+          let i = 2
+          while (fs.existsSync(dest)) { dest = path.join(currentPath, `${base} - 副本${i}${ext}`); i++ }
+          try {
+            fs.cpSync(src, dest, { recursive: true })
+            done++
+          } catch (err) { logError('paste copy failed: ' + src + ' -> ' + err.message) }
+        }
       }
-      if (copied > 0 && popupWin && !popupWin.isDestroyed()) {
+      logError(`paste done: ${done} 项（${cut ? '移动' : '复制'}）`)
+      if (done > 0 && popupWin && !popupWin.isDestroyed()) {
         popupWin.webContents.send('dir-changed')
       }
-    } catch (err) { logError('paste parse: ' + err.message) }
+    } catch (err) { logError('paste parse: ' + err.message + ' raw=' + out.slice(0, 200)) }
   })
 })
 
-// 右键菜单
+// 解压缩（渲染层也可直接调用）
+ipcMain.handle('extract-archive', async (_event, filePath) => {
+  const r = await extractArchiveTo(filePath)
+  if (r.ok && popupWin && !popupWin.isDestroyed()) popupWin.webContents.send('dir-changed')
+  return r
+})
+
+
 ipcMain.on('show-context-menu', (e, items) => {
   const template = []
   if (items.single) {
     template.push({ label: '打开', click: () => shell.openPath(items.paths[0]) })
     template.push({ label: '在资源管理器中显示', click: () => shell.showItemInFolder(items.paths[0]) })
+    // 压缩包才给「解压」：放在「打开」附近，是这类文件最常用的动作。
+    // 判定用后缀 + 确实是文件 —— 名字叫 xxx.zip 的文件夹不该出现这一项。
+    let isArchive = false
+    try {
+      isArchive = ARCHIVE_EXTS.has(path.extname(items.paths[0]).toLowerCase()) && fs.statSync(items.paths[0]).isFile()
+    } catch (err) { isArchive = false }
+    if (isArchive) {
+      template.push({
+        label: '解压到当前文件夹',
+        click: () => {
+          extractArchiveTo(items.paths[0])
+            .then(r => {
+              if (r.ok) {
+                if (popupWin && !popupWin.isDestroyed()) popupWin.webContents.send('dir-changed')
+              } else if (popupWin && !popupWin.isDestroyed()) {
+                dialog.showMessageBox(popupWin, { type: 'warning', message: '解压失败', detail: r.error || '未知错误', buttons: ['好'] })
+              }
+            })
+        }
+      })
+    }
+    template.push({ type: 'separator' })
+    template.push({ label: '剪切', click: () => writeClipboard(items.paths, true) })
+    template.push({ label: '复制', click: () => writeClipboard(items.paths, false) })
     template.push({ type: 'separator' })
     template.push({ label: '复制路径', click: () => clipboard.writeText(items.paths[0]) })
     template.push({ label: '重命名', click: () => { popupWin.webContents.send('do-rename', items.paths[0]) } })
@@ -1030,9 +1158,13 @@ ipcMain.on('show-context-menu', (e, items) => {
   } else {
     template.push({ label: `打开 ${items.paths.length} 项`, click: () => items.paths.forEach(p => shell.openPath(p)) })
     template.push({ type: 'separator' })
+    template.push({ label: `剪切 ${items.paths.length} 项`, click: () => writeClipboard(items.paths, true) })
+    template.push({ label: `复制 ${items.paths.length} 项`, click: () => writeClipboard(items.paths, false) })
+    template.push({ type: 'separator' })
     template.push({ label: `删除 ${items.paths.length} 项（回收站）`, click: () => items.paths.forEach(p => shell.trashItem(p)) })
   }
   template.push({ type: 'separator' })
+  template.push({ label: '粘贴到当前文件夹', click: () => popupWin.webContents.send('do-paste') })
   template.push({ label: '刷新', click: () => popupWin.webContents.send('dir-changed') })
   const menu = Menu.buildFromTemplate(template)
   shelfModalDepth++
@@ -1271,7 +1403,6 @@ if (!gotLock) {
         logError
       })
       createPopup()
-      createAnchor()
       createTray()
       if (isEnabled) startHook()
       startWatcher()

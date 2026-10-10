@@ -27,7 +27,9 @@ contextBridge.exposeInMainWorld('dock', {
   showContextMenu: (items) => ipcRenderer.send('show-context-menu', items),
   showSettingsMenu: () => ipcRenderer.send('show-settings-menu'),
   copyFiles: (paths) => ipcRenderer.send('copy-files', paths),
+  cutFiles: (paths) => ipcRenderer.send('cut-files', paths),
   pasteFiles: () => ipcRenderer.send('paste-files'),
+  extractArchive: (p) => ipcRenderer.invoke('extract-archive', p),
   beginResize: () => ipcRenderer.send('begin-resize'),
   endResize: () => ipcRenderer.send('end-resize'),
   hideDone: () => ipcRenderer.send('hide-done'),
@@ -35,7 +37,8 @@ contextBridge.exposeInMainWorld('dock', {
   onShow: (cb) => ipcRenderer.on('popup-show', (_e, d) => cb(d)),
   onHide: (cb) => ipcRenderer.on('popup-hide', () => cb()),
   onDirChanged: (cb) => ipcRenderer.on('dir-changed', () => cb()),
-  onDoRename: (cb) => ipcRenderer.on('do-rename', (_e, p) => cb(p))
+  onDoRename: (cb) => ipcRenderer.on('do-rename', (_e, p) => cb(p)),
+  onDoPaste: (cb) => ipcRenderer.on('do-paste', () => cb())
 })
 
 // ------------------------------------------------------------
