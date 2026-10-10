@@ -119,6 +119,22 @@ function clipSettings() {
 // ============================================================
 
 // ---------- 图标缓存 ----------
+// 内置的文件夹图标（assets/folder.png）只读一次，转成 dataURL 反复用。
+let folderIconCache = null
+function folderIconDataURL () {
+  if (folderIconCache !== null) return folderIconCache
+  try {
+    const p = path.join(__dirname, 'assets', 'folder.png')
+    const img = nativeImage.createFromPath(p)
+    folderIconCache = img && !img.isEmpty() ? img.toDataURL() : ''
+    if (!folderIconCache) logError('内置文件夹图标加载失败(空): ' + p)
+  } catch (e) {
+    logError('内置文件夹图标加载异常: ' + e.message)
+    folderIconCache = ''
+  }
+  return folderIconCache
+}
+
 async function getIcon(fullPath, ext) {
   const key = ext ? ('ext:' + ext) : 'dir'
   if (iconCache[key]) return iconCache[key]
@@ -806,11 +822,17 @@ ipcMain.handle('get-thumbnail', async (_event, filePath, requestedSize = 96) => 
     if (!filePath || !fs.existsSync(filePath)) return ''
     const stat = fs.statSync(filePath)
     const size = Math.max(32, Math.min(256, Number(requestedSize) || 96))
+    // 目录一律用应用内置的文件夹图标，**不问 Windows 要**。
+    // 原因：某些机器上 app.getFileIcon() 对文件夹返回的是「驱动器」图标
+    //   （本机实测：连注册表 HKCR\Folder\DefaultIcon = shell32.dll,3 都正常，
+    //    系统照样给出驱动器图），用户看到的是一排磁盘，完全不像文件夹。
+    //   内置一张标准的黄色文件夹，风格统一、不受系统图标状态影响，也省掉一次跨进程取图。
+    if (stat.isDirectory()) return folderIconDataURL()
     const key = `${filePath}|${stat.mtimeMs}|${size}`
     if (thumbnailCache.has(key)) return thumbnailCache.get(key)
     let image
-    const useContentPreview = stat.isFile() && PREVIEW_EXTENSIONS.has(path.extname(filePath).toLowerCase())
-    if (stat.isDirectory() || !useContentPreview) image = await app.getFileIcon(filePath, { size: 'large' })
+    const useContentPreview = PREVIEW_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+    if (!useContentPreview) image = await app.getFileIcon(filePath, { size: 'large' })
     else image = await nativeImage.createThumbnailFromPath(filePath, { width: size, height: size })
     if (!image || image.isEmpty()) image = await app.getFileIcon(filePath, { size: 'large' })
     const data = image && !image.isEmpty() ? image.toDataURL() : ''
@@ -987,6 +1009,26 @@ ipcMain.on('copy-files', (e, paths) => { writeClipboard(paths, false) })
 // 和在资源管理器里按 Ctrl+X 等价，粘到别处是「移动」，粘回原目录则什么都不做。
 ipcMain.on('cut-files', (e, paths) => { writeClipboard(paths, true) })
 
+// 压缩包名常常是 URL 编码的（浏览器从某些站点下载时会把中文名转成 %XX），
+// 例如 Excel-%E5%8D%95%E5%85%83%E6%A0%BC%E7%9D%80%E8%89%B2%E4%BF%AE%E5%A4%8D.zip
+// 解出来的文件夹也叫这串乱码，很难看。这里尝试转回可读中文。
+// ⚠️ 两条硬约束，避免把正常名字搞坏：
+//   1. 必须真的含 %XX 序列才尝试，普通文件名（含中文、空格、+）一律原样返回
+//   2. decodeURIComponent 解出的结果里若出现替换字符 / 控制字符，说明不是真编码，回退原名
+function decodeArchiveName (name) {
+  if (!name || !/%[0-9A-Fa-f]{2}/.test(name)) return name
+  let out
+  try {
+    out = decodeURIComponent(name)
+  } catch (e) {
+    return name  // 编码不完整（比如名字里本来就有个孤立的 %）
+  }
+  if (!out || out === name) return name
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\ufffd]/.test(out)) return name
+  return out
+}
+
 // 解压到当前目录下的同名文件夹（供右键菜单和 IPC 共用）
 async function extractArchiveTo (filePath) {
   if (typeof filePath !== 'string' || !filePath) return { ok: false, error: '路径无效' }
@@ -997,7 +1039,7 @@ async function extractArchiveTo (filePath) {
   const ext = path.extname(filePath).toLowerCase()
   if (!ARCHIVE_EXTS.has(ext)) return { ok: false, error: '不支持的压缩格式' }
 
-  const name = path.basename(filePath, ext)
+  const name = decodeArchiveName(path.basename(filePath, ext))
   let outDir = path.join(path.dirname(filePath), name)
   // 目标文件夹已存在时不覆盖，加序号 —— 直接解到已有文件夹里会把人家内容搞乱
   let i = 2

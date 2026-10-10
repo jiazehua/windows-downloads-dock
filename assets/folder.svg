@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="back" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD75E"/>
+      <stop offset="1" stop-color="#F2B93B"/>
+    </linearGradient>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE28A"/>
+      <stop offset="1" stop-color="#FFC53D"/>
+    </linearGradient>
+  </defs>
+  <!-- 后层：文件夹的「背板」+ 标签页 -->
+  <path d="M18 62 h74 l22 24 h102 a14 14 0 0 1 14 14 v100 a14 14 0 0 1 -14 14 H18 a14 14 0 0 1 -14 -14 V76 a14 14 0 0 1 14 -14 z"
+        fill="url(#back)"/>
+  <!-- 前层：翻开的正面，稍微亮一点，做出层次 -->
+  <path d="M18 100 h220 a14 14 0 0 1 13.6 17.4 l-16 74 A14 14 0 0 1 221.7 202 H34.3 a14 14 0 0 1 -13.9 -12.6 l-16 -74 A14 14 0 0 1 18 100 z"
+        fill="url(#front)"/>
+  <!-- 顶部高光 -->
+  <path d="M24 104 h208 a6 6 0 0 1 5.9 7.4 l-2 9 a6 6 0 0 1 -5.9 4.6 H26 a6 6 0 0 1 -5.9 -4.6 l-2 -9 A6 6 0 0 1 24 104 z"
+        fill="#FFFFFF" opacity="0.35"/>
+</svg>
