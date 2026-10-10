@@ -1028,15 +1028,35 @@ async function extractArchiveTo (filePath) {
 
   const sevenZip = findSevenZip()
   if (!sevenZip) return { ok: false, error: '解压 ' + ext + ' 需要装 7-Zip，本机没找到' }
+  // 和 zip 一样先解到临时目录，再决定要不要去壳（理由见 extract-helper.ps1 的注释）。
+  // 临时目录放在目标同一个父目录下，保证同盘，改名是秒级操作。
+  const tmpDir = path.join(path.dirname(filePath), '.dd-extract-' + Math.random().toString(36).slice(2, 10))
   return new Promise(resolve => {
-    const p = spawn(sevenZip, ['x', filePath, '-o' + outDir, '-y'], { windowsHide: true })
+    const p = spawn(sevenZip, ['x', filePath, '-o' + tmpDir, '-y'], { windowsHide: true })
     let err = ''
     p.stderr.setEncoding('utf8')
     p.stderr.on('data', d => { err += d })
     p.on('error', e2 => resolve({ ok: false, error: e2.message }))
     p.on('exit', code => {
-      if (code === 0) resolve({ ok: true, outDir })
-      else resolve({ ok: false, error: (err || '7-Zip 解压失败').slice(0, 200) })
+      if (code !== 0) {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch (err2) {}
+        resolve({ ok: false, error: (err || '7-Zip 解压失败').slice(0, 200) })
+        return
+      }
+      try {
+        const entries = fs.readdirSync(tmpDir)
+        let src = tmpDir
+        // 只有一个顶层目录 → 去壳，把那一层提升为目标目录
+        if (entries.length === 1 && fs.statSync(path.join(tmpDir, entries[0])).isDirectory()) {
+          src = path.join(tmpDir, entries[0])
+        }
+        fs.renameSync(src, outDir)
+        if (src !== tmpDir) { try { fs.rmdirSync(tmpDir) } catch (err2) {} }
+        resolve({ ok: true, outDir })
+      } catch (err2) {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch (err3) {}
+        resolve({ ok: false, error: '整理解压结果失败：' + err2.message })
+      }
     })
   })
 }

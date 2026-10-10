@@ -366,8 +366,75 @@ $data.SetData('Preferred DropEffect', [byte[]](2, 0, 0, 0))
 > 验证方法：`PIL.ImageGrab` 全屏截图，只裁底部 48px 任务栏带，用 `ImageChops.difference` 比对
 > 三个时间点的差异；**要把最右 240px（托盘区）排除**，否则时钟每跳一分钟就产生假差异。
 
+### 14. `Split-Path` 在 PS 5.1 里**没有** `-LiteralPath`（会让解压 100% 失败）
+
+想按字面路径取父目录时，直觉会写：
+
+```powershell
+$parent = Split-Path -LiteralPath $dest -Parent   # ✗ PS 5.1 报 AmbiguousParameterSet
+```
+
+`Split-Path` 只有 `-Path`（而且是**通配符语义**），`-LiteralPath` 是 `Get-ChildItem` 那一族的
+参数。写成这样，PowerShell 会认为你同时给了两个参数集的参数，直接抛：
+
+```
+无法使用指定的命名参数解析参数集。
++ FullyQualifiedErrorId : AmbiguousParameterSet
+```
+
+后果很隐蔽：脚本**能启动**，行号也指得准，但每一次解压都在同一行失败 —— v2.1.2 发出去的包里
+「解压」功能等于完全不可用。正确写法是用 .NET 按字面取：
+
+```powershell
+$parent = [System.IO.Path]::GetDirectoryName($dest)   # ✓ 不做通配符解析
+```
+
+> 教训：`-LiteralPath` 不存在时，**不要**图省事退回 `-Path`；含 `[ ]` 的路径会被当模式解析。
+> 凡是「按字面处理路径」的需求，优先用 `[System.IO.Path]` / `[System.IO.Directory]` 的静态方法。
+
+### 15. 解压要去掉「只有一个顶层目录」的那层壳
+
+很多压缩包的内部结构是「根下只有一个文件夹」：
+
+```
+Excel-单元格着色修复.zip
+└── Excel/                 ← 包里自带的顶层目录，只是个壳
+    ├── index.vue
+    └── mixins/...
+```
+
+如果直接 `ExtractToDirectory(src, dest)`，会得到 `dest\Excel\index.vue` —— 两层。而用户右键
+解压时看到的目标文件夹已经叫 `Excel-单元格着色修复` 了，再套一层 `Excel\` 纯属多余
+（对比用户手工解压的 `constraints-powercards-theme-v20-light-simple/`，内容就是直接铺在根的）。
+
+修法是**先解到临时目录、再决定要不要提升**（strip single root）：
+
+1. 临时目录建在目标**同一个父目录**下（`.dd-extract-<8位随机>`）—— 同一分区，
+   `Move-Item` / `renameSync` 就是改目录项，秒级完成；跨盘会退化成整树复制，所以位置不能随便放
+2. 解完 `Get-ChildItem -Force`，若 **`Count -eq 1` 且 `PSIsContainer`** → 把那一层
+   `Move-Item` 成目标目录
+3. 否则整个临时目录改名为目标目录 —— **内容仍然全在目标文件夹里，绝不会散落到 Downloads**
+4. 任何分支/异常都清掉临时目录，不留 `.dd-extract-*` 垃圾
+
+`.7z / .rar` 等走 7-Zip 的格式在 `main.js` 侧做同样的判定，保证两种路径行为一致。
+
 ## 版本
 
+- **v2.1.3（2026-10-10）**：**修掉 v2.1.2 里解压完全用不了的两个 bug**，并给解压加「去壳」。
+  - **致命 bug 1**：`extract-helper.ps1` 里写了 `Split-Path -LiteralPath $dest -Parent` ——
+    **PS 5.1 的 `Split-Path` 根本没有 `-LiteralPath`**（只有 `-Path`），参数集有歧义，
+    任何一次解压都在第 34 行抛 `AmbiguousParameterSet` 直接失败。
+    改用 .NET 的 `[System.IO.Path]::GetDirectoryName($dest)` 按字面取父目录（见实现要点 14）。
+  - **致命 bug 2（见用户反馈）**：解压会**双层嵌套**。压缩包内部根下只有一个目录时
+    （例如 `Excel-单元格着色修复.zip` 里只有 `Excel\index.vue`、`Excel\mixins\...`），
+    直接解到目标目录就得到 `Excel-单元格着色修复\Excel\index.vue` —— 多一层没意义的壳；
+    用户右键解压时期待的是 `Excel-单元格着色修复\index.vue`。
+  - **修法（去壳 / strip single root）**：先解到目标**同盘**的临时目录（`.dd-extract-xxxxxxxx`，
+    放同一父目录下保证 `Move-Item` 是秒级改名而不是复制），
+    若 `Get-ChildItem -Force` 后**只有 1 个条目且是目录**，就把那一层整体提升为目标目录；
+    否则整个临时目录改名为目标（内容仍然都在目标文件夹里，不会散落到 Downloads）。
+    标准 zip 走 `extract-helper.ps1`，`.7z/.rar` 等走 7-Zip 后由 `main.js` 做同样的判定。
+  - 用户原话：「解压得解压到一个文件夹里，而不是散落在 download 里。」
 - **v2.1.2（2026-10-10）**：**任务栏真正做到了「平时什么都没有」**。
   v2.1.1 只把图标从两个减到一个（锚点还常驻），没满足「平时任务栏要空」。
   这一版整个移除锚点窗口（`createAnchor()` / `anchorWin`），改为浮层窗口自己
