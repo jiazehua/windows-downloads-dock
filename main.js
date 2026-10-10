@@ -410,7 +410,12 @@ function createPopup() {
     transparent: true,
     resizable: false,
     show: false,
-    skipTaskbar: false,
+    // ⚠️ 必须是 true：下面还有一个「锚点窗口」专门负责在任务栏留一个按钮。
+    // 两个窗口都不进任务栏 = 任务栏上什么都没有，用户就再也点不到它了。
+    // 以前这里是 false，于是浮层和锚点各注册一个任务栏按钮 → 任务栏上出现**两个**
+    // 一模一样的图标，而且关不掉（浮层的「关闭」被 close 事件拦下来只做收起，
+    // 右键「关闭窗口」同样被拦住）。锚点才是那个常驻的任务栏徽标。
+    skipTaskbar: true,
     alwaysOnTop: true,
     hasShadow: false,
     fullscreenable: false,
@@ -472,6 +477,8 @@ function createPopup() {
 }
 
 // ---------- 锚点窗口（任务栏按钮） ----------
+// 这是**唯一**进任务栏的窗口，也就是用户看到的那一个图标 / 徽标。
+// 按住它才能弹出浮层；浮层自己（popupWin）是 skipTaskbar 的，不再额外占一个按钮。
 function createAnchor() {
   anchorWin = new BrowserWindow({
     width: 1, height: 1,

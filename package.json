@@ -1,6 +1,6 @@
 {
   "name": "downloadsdock",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Windows 下载浮窗 + 最近图片：Ctrl+Shift+V 在鼠标位置弹出双栏浮层，左栏管下载文件夹，右栏自动收集剪贴板图片并支持临时暂存架",
   "main": "main.js",
   "author": "穿山贾",
